@@ -25,6 +25,7 @@ go.sum
 
 # env file
 .env
+app.env
 
 # json file
 *.json
