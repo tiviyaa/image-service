@@ -9,70 +9,61 @@ import (
 	"github.com/nfnt/resize"
 )
 
-func ResizeAndAddWatermark(srcPath, dstResizedPath, dstWatermarkedPath, watermarkPath, size string) error {
-	// Open the original file
-	file, err := os.Open(srcPath)
+func ResizeImageByID(id string) (map[string]string, error) {
+	// Retrieve the original path from Firestore
+	originalPath, err := GetImagePathByID(id)
 	if err != nil {
-		return fmt.Errorf("error opening source file: %w", err)
+		return nil, fmt.Errorf("error retrieving original image path: %w", err)
+	}
+
+	file, err := os.Open(originalPath)
+	if err != nil {
+		return nil, fmt.Errorf("error opening file: %w", err)
 	}
 	defer file.Close()
 
-	// Decode the original image
 	img, _, err := image.Decode(file)
 	if err != nil {
-		return fmt.Errorf("error decoding image: %w", err)
+		return nil, fmt.Errorf("error decoding image: %w", err)
 	}
 
-	//Image Size (Small, Medium, Large) with WaterMark quantity by column and row
-	var newWidth uint
-	var rows, cols int
-	switch size {
-	case "small":
-		newWidth = 256
-		cols = 2
-		rows = 2
-	case "medium":
-		newWidth = 512
-		cols = 12
-		rows = 10
-	case "large":
-		newWidth = 1024
-		cols = 18
-		rows = 15
-	default:
-		return fmt.Errorf("invalid size specified")
+	// Create paths for resized images and store them in Firestore
+	resizedPaths := make(map[string]string)
+	sizes := map[string]uint{
+		"small":  256,
+		"medium": 512,
+		"large":  1024,
 	}
 
-	// Resize the image
-	resizedImage := resize.Resize(newWidth, 0, img, resize.Lanczos3)
+	for size, newWidth := range sizes {
+		dstResizedPath := fmt.Sprintf("uploads/%s-%s.jpg", size, id)
+		resizedImage := resize.Resize(newWidth, 0, img, resize.Lanczos3)
 
-	// Add watermark to the resized image
-	watermarkedImage, err := AddWatermark(resizedImage, watermarkPath, rows, cols)
-	if err != nil {
-		return fmt.Errorf("error adding watermark: %w", err)
+		out, err := os.Create(dstResizedPath)
+		if err != nil {
+			return nil, fmt.Errorf("error creating resized file: %w", err)
+		}
+		defer out.Close()
+
+		// Encode the resized image as JPEG
+		if err := jpeg.Encode(out, resizedImage, nil); err != nil {
+			return nil, fmt.Errorf("error encoding resized image: %w", err)
+		}
+
+		// Upload the resized image to Firebase Storage
+		uploadPath, err := UploadToFirebase(dstResizedPath)
+		if err != nil {
+			return nil, fmt.Errorf("error uploading resized image to Firebase Storage: %w", err)
+		}
+
+		// Store the path in the map
+		resizedPaths[size] = uploadPath
 	}
 
-	// Save the resized image
-	out, err := os.Create(dstResizedPath)
-	if err != nil {
-		return fmt.Errorf("error creating resized file: %w", err)
-	}
-	defer out.Close()
-
-	if err := jpeg.Encode(out, resizedImage, nil); err != nil {
-		return fmt.Errorf("error encoding resized image: %w", err)
+	// Update Firestore with the resized image paths
+	if err := UpdateImagePathsInFirestore(id, resizedPaths); err != nil {
+		return nil, fmt.Errorf("error updating Firestore with resized paths: %w", err)
 	}
 
-	// Save the watermarked image
-	outWatermarked, err := os.Create(dstWatermarkedPath)
-	if err != nil {
-		return fmt.Errorf("error creating watermarked file: %w", err)
-	}
-	defer outWatermarked.Close()
-
-	if err := jpeg.Encode(outWatermarked, watermarkedImage, nil); err != nil {
-		return fmt.Errorf("error encoding watermarked image: %w", err)
-	}
-
-	return nil
+	return resizedPaths, nil
 }

@@ -45,45 +45,17 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Path to the watermark image
-	watermarkPath := "resources/watermark.png"
-
-	// Initialize paths map
-	paths := map[string]string{
-		"originalPath": originalFilePath,
+	// Store the original file path in Firestore and get the ID
+	docID, err := utils.StoreOriginalPathInFirestore(originalFilePath)
+	if err != nil {
+		http.Error(w, "Failed to store path in Firestore", http.StatusInternalServerError)
+		return
 	}
 
-	// Process resized images and add watermark
-	sizes := map[string]string{
-		"small":  "small",
-		"medium": "medium",
-		"large":  "large",
-	}
-
-	for size, sizeName := range sizes {
-		resizedFilePath := fmt.Sprintf("uploads/%s-%d-%s", sizeName, time.Now().Unix(), uploadRequest.Filename)
-		watermarkedFilePath := fmt.Sprintf("uploads/%s-watermarked-%d-%s", sizeName, time.Now().Unix(), uploadRequest.Filename)
-
-		err = utils.ResizeAndAddWatermark(originalFilePath, resizedFilePath, watermarkedFilePath, watermarkPath, sizeName)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("error processing size %s: %v", sizeName, err), http.StatusInternalServerError)
-			return
-		}
-
-		// Upload resized and watermarked files to Firebase
-		utils.UploadToFirebase(resizedFilePath)
-		utils.UploadToFirebase(watermarkedFilePath)
-
-		// Store the paths of resized and watermarked images
-		paths[size+"Path"] = resizedFilePath
-		paths[size+"WatermarkPath"] = watermarkedFilePath
-	}
-
-	// Store all paths in Firestore
-	utils.StorePathsInFirestore(paths)
-
+	// Respond with the document ID
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"message": "Successfully Uploaded Files",
+		"id":      docID,
+		"message": "Successfully uploaded the image",
 	})
 }
