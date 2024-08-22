@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"cloud.google.com/go/firestore"
 	firebase "firebase.google.com/go"
 	"firebase.google.com/go/storage"
+	"github.com/google/uuid"
 	"google.golang.org/api/option"
 )
 
@@ -20,7 +22,7 @@ var (
 
 func init() {
 	ctx := context.Background()
-	sa := option.WithCredentialsFile("C:/Users/user/Documents/Go Programming/serviceAccountKey.json")
+	sa := option.WithCredentialsFile("serviceAccountKey.json")
 
 	app, err := firebase.NewApp(ctx, &firebase.Config{ProjectID: "internshiptask-431606"}, sa)
 	if err != nil {
@@ -41,45 +43,72 @@ func init() {
 	}
 }
 
-func UploadToFirebase(filePath string) {
+func StoreOriginalPathInFirestore(originalPath string) (string, error) {
+	ctx := context.Background()
+	docRef, _, err := firestoreClient.Collection("images").Add(ctx, map[string]interface{}{
+		"originalPath": originalPath,
+		"timestamp":    firestore.ServerTimestamp,
+	})
+	if err != nil {
+		return "", fmt.Errorf("error storing path in Firestore: %w", err)
+	}
+	return docRef.ID, nil
+}
+
+func UpdateImagePathsInFirestore(docID string, paths map[string]string) error {
+	ctx := context.Background()
+	_, err := firestoreClient.Collection("images").Doc(docID).Set(ctx, paths, firestore.MergeAll)
+	if err != nil {
+		return fmt.Errorf("error updating paths in Firestore: %w", err)
+	}
+	return nil
+}
+
+func GetImagePathByID(docID string) (string, error) {
+	ctx := context.Background()
+	doc, err := firestoreClient.Collection("images").Doc(docID).Get(ctx)
+	if err != nil {
+		return "", fmt.Errorf("error retrieving document from Firestore: %w", err)
+	}
+
+	originalPath, ok := doc.Data()["originalPath"].(string)
+	if !ok {
+		return "", fmt.Errorf("invalid document format")
+	}
+
+	return originalPath, nil
+}
+
+func UploadToFirebase(filePath string) (string, error) {
 	ctx := context.Background()
 	bucket, err := storageClient.Bucket(bucketName)
 	if err != nil {
-		fmt.Printf("error getting bucket: %v\n", err)
-		return
+		return "", fmt.Errorf("error getting bucket: %w", err)
 	}
 
+	filename := filepath.Base(filePath)
 	file, err := os.Open(filePath)
 	if err != nil {
-		fmt.Printf("error opening file: %v\n", err)
-		return
+		return "", fmt.Errorf("error opening file: %w", err)
 	}
 	defer file.Close()
 
-	wc := bucket.Object(filePath).NewWriter(ctx)
+	wc := bucket.Object(filename).NewWriter(ctx)
+	token := uuid.New().String()
+
+	wc.Metadata = map[string]string{
+		"firebaseStorageDownloadTokens": token,
+	}
+
 	if _, err := io.Copy(wc, file); err != nil {
-		fmt.Printf("error uploading file: %v\n", err)
-		return
+		return "", fmt.Errorf("error uploading file: %w", err)
 	}
 	if err := wc.Close(); err != nil {
-		fmt.Printf("error closing writer: %v\n", err)
-		return
+		return "", fmt.Errorf("error closing writer: %w", err)
 	}
-}
 
-func StorePathsInFirestore(paths map[string]string) {
-	ctx := context.Background()
-	_, _, err := firestoreClient.Collection("images").Add(ctx, map[string]interface{}{
-		"originalPath":        paths["originalPath"],
-		"smallPath":           paths["smallPath"],
-		"mediumPath":          paths["mediumPath"],
-		"largePath":           paths["largePath"],
-		"smallWatermarkPath":  paths["smallWatermarkPath"],
-		"mediumWatermarkPath": paths["mediumWatermarkPath"],
-		"largeWatermarkPath":  paths["largeWatermarkPath"],
-		"timestamp":           firestore.ServerTimestamp,
-	})
-	if err != nil {
-		fmt.Printf("error storing paths in firestore: %v\n", err)
-	}
+	// Generate the full URL including the token using uuid -> watermark and resize images
+	url := fmt.Sprintf("https://firebasestorage.googleapis.com/v0/b/%s/o/%s?alt=media&token=%s", bucketName, filename, token)
+
+	return url, nil
 }

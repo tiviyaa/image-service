@@ -7,11 +7,12 @@ import (
 )
 
 func main() {
-	// Serve static files from the uploads directory
-	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
 
-	// Handle image uploads
+	//http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
+
 	http.HandleFunc("/upload", handlers.UploadHandler)
-
+	http.HandleFunc("/resize/", handlers.ResizeHandler)
+	http.HandleFunc("/watermark/", handlers.WatermarkHandler)
+	http.HandleFunc("/image/", handlers.GetImageHandler)
 	http.ListenAndServe(":8080", nil)
 }

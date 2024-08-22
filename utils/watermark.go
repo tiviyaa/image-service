@@ -3,54 +3,84 @@ package utils
 import (
 	"fmt"
 	"image"
-	"image/draw"
-	"image/png"
+	"image/jpeg"
 	"os"
+	"path/filepath"
 
 	"github.com/nfnt/resize"
 )
 
-// AddWatermark applies a watermark to an image in a grid pattern
-func AddWatermark(img image.Image, watermarkPath string, rows, cols int) (image.Image, error) {
-	// Open the watermark file
-	watermarkFile, err := os.Open(watermarkPath)
+func WatermarkImageByID(id string) (map[string]string, error) {
+	// Retrieve the original path from Firestore
+	originalPath, err := GetImagePathByID(id)
 	if err != nil {
-		return nil, fmt.Errorf("error opening watermark file: %w", err)
-	}
-	defer watermarkFile.Close()
-
-	// Decode the watermark image
-	watermarkImg, err := png.Decode(watermarkFile)
-	if err != nil {
-		return nil, fmt.Errorf("error decoding watermark image: %w", err)
+		return nil, fmt.Errorf("error retrieving original image path: %w", err)
 	}
 
-	bounds := img.Bounds()
+	// Open the original image file
+	file, err := os.Open(originalPath)
+	if err != nil {
+		return nil, fmt.Errorf("error opening file: %w", err)
+	}
+	defer file.Close()
 
-	// Calculate the new size for the watermark
-	newWatermarkWidth := bounds.Dx() / cols
-	newWatermarkHeight := bounds.Dy() / rows
+	// Decode the original image
+	img, _, err := image.Decode(file)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding image: %w", err)
+	}
 
-	// Resize the watermark image
-	resizedWatermark := resize.Resize(uint(newWatermarkWidth), uint(newWatermarkHeight), watermarkImg, resize.Lanczos3)
+	// Watermark settings based on image size
+	watermarkPaths := make(map[string]string)
+	sizes := map[string]struct {
+		width uint
+		rows  int
+		cols  int
+	}{
+		"smallWatermark":  {width: 256, rows: 2, cols: 2},
+		"mediumWatermark": {width: 512, rows: 10, cols: 12},
+		"largeWatermark":  {width: 1024, rows: 15, cols: 18},
+	}
 
-	rgba := image.NewRGBA(bounds)
-	draw.Draw(rgba, bounds, img, image.Point{}, draw.Src)
+	// Relative path to the watermark image
+	watermarkPath := filepath.Join("resources", "watermark.png")
 
-	// Calculate the spacing for the watermarks
-	spacingX := bounds.Dx() / cols
-	spacingY := bounds.Dy() / rows
+	for size, settings := range sizes {
+		// Resize the original image to the desired width while maintaining aspect ratio
+		resizedImg := resize.Resize(settings.width, 0, img, resize.Lanczos3)
 
-	// Draw the watermark in a grid pattern
-	for y := 0; y < rows; y++ {
-		for x := 0; x < cols; x++ {
-			pt := image.Point{
-				X: x*spacingX + (spacingX-newWatermarkWidth)/2,
-				Y: y*spacingY + (spacingY-newWatermarkHeight)/2,
-			}
-			draw.Draw(rgba, resizedWatermark.Bounds().Add(pt), resizedWatermark, image.Point{}, draw.Over)
+		// Apply watermark to the resized image
+		watermarkedImage, err := AddWatermark(resizedImg, watermarkPath, settings.rows, settings.cols)
+		if err != nil {
+			return nil, fmt.Errorf("error applying watermark: %w", err)
+		}
+
+		// Save the watermarked image
+		dstWatermarkedPath := filepath.Join("uploads", fmt.Sprintf("watermarked-%s-%s.jpg", size, id))
+		out, err := os.Create(dstWatermarkedPath)
+		if err != nil {
+			return nil, fmt.Errorf("error creating watermarked file: %w", err)
+		}
+		defer out.Close()
+
+		if err := jpeg.Encode(out, watermarkedImage, nil); err != nil {
+			return nil, fmt.Errorf("error encoding watermarked image: %w", err)
+		}
+
+		// Upload the watermarked image to Firebase Storage and store the path
+		uploadPath, err := UploadToFirebase(dstWatermarkedPath)
+		if err != nil {
+			return nil, fmt.Errorf("error uploading watermarked image to Firebase Storage: %w", err)
+		}
+
+		// Store the path in the map
+		watermarkPaths[size] = uploadPath
+
+		// Update Firestore with the watermarked image path
+		if err := UpdateImagePathsInFirestore(id, map[string]string{size: uploadPath}); err != nil {
+			return nil, fmt.Errorf("error updating Firestore with watermarked paths: %w", err)
 		}
 	}
 
-	return rgba, nil
+	return watermarkPaths, nil
 }
