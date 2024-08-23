@@ -1,28 +1,31 @@
 package utils
 
 import (
+	"bytes"
 	"fmt"
 	"image"
 	"image/jpeg"
-	"os"
+	"net/http"
 
 	"github.com/nfnt/resize"
 )
 
 func ResizeImageByID(id string) (map[string]string, error) {
-	// Retrieve the original path from Firestore
-	originalPath, err := GetImagePathByID(id)
+	// Retrieve the original path (URL) from Firestore
+	originalURL, err := GetImagePathByID(id)
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving original image path: %w", err)
 	}
 
-	file, err := os.Open(originalPath)
+	// Download the image from Firebase Storage using the URL
+	resp, err := http.Get(originalURL)
 	if err != nil {
-		return nil, fmt.Errorf("error opening file: %w", err)
+		return nil, fmt.Errorf("error downloading image from Firebase Storage: %w", err)
 	}
-	defer file.Close()
+	defer resp.Body.Close()
 
-	img, _, err := image.Decode(file)
+	// Decode the image from the response body
+	img, _, err := image.Decode(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("error decoding image: %w", err)
 	}
@@ -36,22 +39,18 @@ func ResizeImageByID(id string) (map[string]string, error) {
 	}
 
 	for size, newWidth := range sizes {
-		dstResizedPath := fmt.Sprintf("uploads/%s-%s.jpg", size, id)
+		// Resize the image in-memory
 		resizedImage := resize.Resize(newWidth, 0, img, resize.Lanczos3)
 
-		out, err := os.Create(dstResizedPath)
-		if err != nil {
-			return nil, fmt.Errorf("error creating resized file: %w", err)
-		}
-		defer out.Close()
-
-		// Encode the resized image as JPEG
-		if err := jpeg.Encode(out, resizedImage, nil); err != nil {
+		// Encode the resized image into a byte buffer
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, resizedImage, nil); err != nil {
 			return nil, fmt.Errorf("error encoding resized image: %w", err)
 		}
 
 		// Upload the resized image to Firebase Storage
-		uploadPath, err := UploadToFirebase(dstResizedPath)
+		filePath := fmt.Sprintf("resized-%s-%s.jpg", size, id)
+		uploadPath, err := UploadToFirebaseFromBytes(buf.Bytes(), filePath)
 		if err != nil {
 			return nil, fmt.Errorf("error uploading resized image to Firebase Storage: %w", err)
 		}

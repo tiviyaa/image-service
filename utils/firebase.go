@@ -3,8 +3,6 @@ package utils
 import (
 	"context"
 	"fmt"
-	"io"
-	"os"
 	"path/filepath"
 
 	"cloud.google.com/go/firestore"
@@ -43,6 +41,7 @@ func init() {
 	}
 }
 
+// Original Image - Store the Path in Firestore
 func StoreOriginalPathInFirestore(originalPath string) (string, error) {
 	ctx := context.Background()
 	docRef, _, err := firestoreClient.Collection("images").Add(ctx, map[string]interface{}{
@@ -55,6 +54,7 @@ func StoreOriginalPathInFirestore(originalPath string) (string, error) {
 	return docRef.ID, nil
 }
 
+// Update the Image Path (URL) in Firestore
 func UpdateImagePathsInFirestore(docID string, paths map[string]string) error {
 	ctx := context.Background()
 	_, err := firestoreClient.Collection("images").Doc(docID).Set(ctx, paths, firestore.MergeAll)
@@ -64,6 +64,7 @@ func UpdateImagePathsInFirestore(docID string, paths map[string]string) error {
 	return nil
 }
 
+// Retrieve the Image Path by ID from the Cloud Firestore (images)
 func GetImagePathByID(docID string) (string, error) {
 	ctx := context.Background()
 	doc, err := firestoreClient.Collection("images").Doc(docID).Get(ctx)
@@ -79,7 +80,8 @@ func GetImagePathByID(docID string) (string, error) {
 	return originalPath, nil
 }
 
-func UploadToFirebase(filePath string) (string, error) {
+// Upload the Image to the Firestore Storage
+func UploadToFirebaseFromBytes(fileBytes []byte, filePath string) (string, error) {
 	ctx := context.Background()
 	bucket, err := storageClient.Bucket(bucketName)
 	if err != nil {
@@ -87,12 +89,6 @@ func UploadToFirebase(filePath string) (string, error) {
 	}
 
 	filename := filepath.Base(filePath)
-	file, err := os.Open(filePath)
-	if err != nil {
-		return "", fmt.Errorf("error opening file: %w", err)
-	}
-	defer file.Close()
-
 	wc := bucket.Object(filename).NewWriter(ctx)
 	token := uuid.New().String()
 
@@ -100,14 +96,14 @@ func UploadToFirebase(filePath string) (string, error) {
 		"firebaseStorageDownloadTokens": token,
 	}
 
-	if _, err := io.Copy(wc, file); err != nil {
-		return "", fmt.Errorf("error uploading file: %w", err)
+	if _, err := wc.Write(fileBytes); err != nil {
+		return "", fmt.Errorf("error writing file: %w", err)
 	}
 	if err := wc.Close(); err != nil {
 		return "", fmt.Errorf("error closing writer: %w", err)
 	}
 
-	// Generate the full URL including the token using uuid -> watermark and resize images
+	// Generate the full URL including the token
 	url := fmt.Sprintf("https://firebasestorage.googleapis.com/v0/b/%s/o/%s?alt=media&token=%s", bucketName, filename, token)
 
 	return url, nil
