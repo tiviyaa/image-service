@@ -59,5 +59,6 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 		"id":      docID,
 		"message": "Successfully uploaded the image",
 		"path":    url,
+
 	})
 }

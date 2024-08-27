@@ -20,7 +20,6 @@ func GetImageHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
 	// Redirect to the image URL in Firebase Storage
 	http.Redirect(w, r, imageURL, http.StatusFound)
 }
