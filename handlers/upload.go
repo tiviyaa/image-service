@@ -4,9 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
-	"time"
 
 	"example.com/go-programming/utils"
 )
@@ -37,25 +35,30 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save the original file
-	originalFilePath := fmt.Sprintf("uploads/original-%d-%s", time.Now().Unix(), uploadRequest.Filename)
-	err = ioutil.WriteFile(originalFilePath, decodedImage, 0644)
+	// Use the filename provided in the request
+	originalFileName := uploadRequest.Filename
+
+	// Save the image directly to Firebase Storage
+	filePath := fmt.Sprintf("uploaded-%s", originalFileName)
+	url, err := utils.UploadToFirebaseFromBytes(decodedImage, filePath)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to upload image to Firebase Storage", http.StatusInternalServerError)
 		return
 	}
 
-	// Store the original file path in Firestore and get the ID
-	docID, err := utils.StoreOriginalPathInFirestore(originalFilePath)
+	// Store the file path in Firestore and get the document ID
+	docID, err := utils.StoreOriginalPathInFirestore(url)
 	if err != nil {
 		http.Error(w, "Failed to store path in Firestore", http.StatusInternalServerError)
 		return
 	}
 
-	// Respond with the document ID
+	// Respond with the document ID and Firebase Storage URL
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"id":      docID,
 		"message": "Successfully uploaded the image",
+		"path":    url,
+
 	})
 }

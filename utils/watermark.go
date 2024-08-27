@@ -1,31 +1,31 @@
 package utils
 
 import (
+	"bytes"
 	"fmt"
 	"image"
 	"image/jpeg"
-	"os"
+	"net/http"
 
 	"github.com/nfnt/resize"
 )
 
-// WatermarkImageByID applies a watermark to an image based on its size using a grid pattern
 func WatermarkImageByID(id string) (map[string]string, error) {
 	// Retrieve the original path from Firestore
-	originalPath, err := GetImagePathByID(id)
+	originalURL, err := GetImagePathByID(id)
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving original image path: %w", err)
 	}
 
-	// Open the original image file
-	file, err := os.Open(originalPath)
+	// Fetch the image from the originalPath (Firebase URL) and decode it
+	resp, err := http.Get(originalURL)
 	if err != nil {
-		return nil, fmt.Errorf("error opening file: %w", err)
+		return nil, fmt.Errorf("error downloading image from Firebase Storage: %w", err)
 	}
-	defer file.Close()
+	defer resp.Body.Close()
 
-	// Decode the original image
-	img, _, err := image.Decode(file)
+	// Decode the image from the response body
+	img, _, err := image.Decode(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("error decoding image: %w", err)
 	}
@@ -42,30 +42,30 @@ func WatermarkImageByID(id string) (map[string]string, error) {
 		"largeWatermark":  {width: 1024, rows: 15, cols: 18},
 	}
 
+	// Relative path to the watermark image
+	watermarkPath := "resources/watermark.png"
+
 	for size, settings := range sizes {
 		// Resize the original image to the desired width while maintaining aspect ratio
 		resizedImg := resize.Resize(settings.width, 0, img, resize.Lanczos3)
 
 		// Apply watermark to the resized image
-		watermarkedImage, err := AddWatermark(resizedImg, "C:/Users/user/Pictures/Go Programming/resources/watermark.png", settings.rows, settings.cols)
+		watermarkedImage, err := AddWatermark(resizedImg, watermarkPath, settings.rows, settings.cols)
 		if err != nil {
 			return nil, fmt.Errorf("error applying watermark: %w", err)
 		}
 
-		// Save the watermarked image
-		dstWatermarkedPath := fmt.Sprintf("uploads/watermarked-%s-%s.jpg", size, id)
-		out, err := os.Create(dstWatermarkedPath)
-		if err != nil {
-			return nil, fmt.Errorf("error creating watermarked file: %w", err)
-		}
-		defer out.Close()
-
-		if err := jpeg.Encode(out, watermarkedImage, nil); err != nil {
+		// Encode the watermarked image to bytes
+		var imageBytes []byte
+		buffer := new(bytes.Buffer)
+		if err := jpeg.Encode(buffer, watermarkedImage, nil); err != nil {
 			return nil, fmt.Errorf("error encoding watermarked image: %w", err)
 		}
+		imageBytes = buffer.Bytes()
 
-		// Upload the watermarked image to Firebase Storage and store the path
-		uploadPath, err := UploadToFirebase(dstWatermarkedPath)
+		// Upload the watermarked image directly to Firebase Storage
+		filePath := fmt.Sprintf("watermarked-%s-%s.jpg", size, id)
+		uploadPath, err := UploadToFirebaseFromBytes(imageBytes, filePath)
 		if err != nil {
 			return nil, fmt.Errorf("error uploading watermarked image to Firebase Storage: %w", err)
 		}

@@ -14,12 +14,12 @@ func GetImageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch the image path from Firestore
-	imagePath, err := utils.GetImagePathByID(id)
+	// Fetch the image URL from Firestore
+	imageURL, err := utils.GetImagePathByID(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	http.ServeFile(w, r, imagePath)
+	// Redirect to the image URL in Firebase Storage
+	http.Redirect(w, r, imageURL, http.StatusFound)
 }

@@ -20,10 +20,6 @@
 # Go workspace file
 go.work
 go.work.sum
-<<<<<<< HEAD
-=======
-
->>>>>>> 7579ba5 (Update .gitignore and other modifications)
 
 # env file
 .env
