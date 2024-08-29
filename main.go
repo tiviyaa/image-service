@@ -1,18 +1,18 @@
 package main
 
 import (
-	"net/http"
-
 	"example.com/go-programming/handlers"
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
+	gin.SetMode(gin.ReleaseMode) //Release Mode
+	r := gin.Default()
 
-	//http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
+	r.POST("/upload", handlers.UploadHandler)
+	r.POST("/resize/:id", handlers.ResizeHandler)
+	r.POST("/watermark/:id", handlers.WatermarkHandler)
+	r.GET("/image/:id", handlers.GetImageHandler)
 
-	http.HandleFunc("/upload", handlers.UploadHandler)
-	http.HandleFunc("/resize/", handlers.ResizeHandler)
-	http.HandleFunc("/watermark/", handlers.WatermarkHandler)
-	http.HandleFunc("/image/", handlers.GetImageHandler)
-	http.ListenAndServe(":8080", nil)
+	r.Run(":8080")
 }

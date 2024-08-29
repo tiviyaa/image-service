@@ -2,11 +2,11 @@ package handlers
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"example.com/go-programming/utils"
+	"github.com/gin-gonic/gin"
 )
 
 type UploadRequest struct {
@@ -14,51 +14,49 @@ type UploadRequest struct {
 	Filename    string `json:"filename"`
 }
 
-func UploadHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Parse JSON request body
+func UploadHandler(c *gin.Context) {
 	var uploadRequest UploadRequest
-	err := json.NewDecoder(r.Body).Decode(&uploadRequest)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&uploadRequest); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Decode base64 image
+	// Decode the base64 image
 	decodedImage, err := base64.StdEncoding.DecodeString(uploadRequest.ImageBase64)
 	if err != nil {
-		http.Error(w, "Invalid base64 data", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid base64 data"})
 		return
 	}
 
-	// Use the filename provided in the request
-	originalFileName := uploadRequest.Filename
+	// Store the path in Firestore to get the document ID
+	docID, err := utils.StoreOriginalPathInFirestore("temporary")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to store path in Firestore"})
+		return
+	}
 
-	// Save the image directly to Firebase Storage
-	filePath := fmt.Sprintf("uploaded-%s", originalFileName)
+	// Use the document ID as part of the file name
+	originalFileName := uploadRequest.Filename
+	filePath := fmt.Sprintf("uploaded-%s-%s", docID, originalFileName)
+
+	// Upload the image to Firebase Storage with the docID in the filename
 	url, err := utils.UploadToFirebaseFromBytes(decodedImage, filePath)
 	if err != nil {
-		http.Error(w, "Failed to upload image to Firebase Storage", http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload image to Firebase Storage"})
 		return
 	}
 
-	// Store the file path in Firestore and get the document ID
-	docID, err := utils.StoreOriginalPathInFirestore(url)
+	// Update the Firestore record with the actual URL
+	err = utils.UpdateImagePathsInFirestore(docID, map[string]string{"originalPath": url})
 	if err != nil {
-		http.Error(w, "Failed to store path in Firestore", http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update Firestore with image URL"})
 		return
 	}
 
-	// Respond with the document ID and Firebase Storage URL
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	// Respond with the document ID and URL
+	c.JSON(http.StatusOK, gin.H{
 		"id":      docID,
 		"message": "Successfully uploaded the image",
 		"path":    url,
-
 	})
 }

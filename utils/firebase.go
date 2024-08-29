@@ -80,6 +80,28 @@ func GetImagePathByID(docID string) (string, error) {
 	return originalPath, nil
 }
 
+// Get data: Image from Postman
+func GetImagePathsByID(docID string) (map[string]string, error) {
+	ctx := context.Background()
+	doc, err := firestoreClient.Collection("images").Doc(docID).Get(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving document from Firestore: %w", err)
+	}
+
+	paths := make(map[string]string)
+	for key, value := range doc.Data() {
+		if path, ok := value.(string); ok {
+			paths[key] = path
+		}
+	}
+
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("no paths found for document ID %s", docID)
+	}
+
+	return paths, nil
+}
+
 // Upload the Image to the Firestore Storage
 func UploadToFirebaseFromBytes(fileBytes []byte, filePath string) (string, error) {
 	ctx := context.Background()
