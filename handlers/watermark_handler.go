@@ -1,28 +1,26 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
-	"strings"
 
 	"example.com/go-programming/utils"
+	"github.com/gin-gonic/gin"
 )
 
-func WatermarkHandler(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/watermark/")
+func WatermarkHandler(c *gin.Context) {
+	id := c.Param("id")
 	if id == "" {
-		http.Error(w, "Missing image ID", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing image ID"})
 		return
 	}
 
 	watermarkPaths, err := utils.WatermarkImageByID(id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	c.JSON(http.StatusOK, gin.H{
 		"message": "Image watermarked successfully",
 		"id":      id,
 		"paths":   watermarkPaths,

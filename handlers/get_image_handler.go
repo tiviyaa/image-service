@@ -2,24 +2,46 @@ package handlers
 
 import (
 	"net/http"
-	"strings"
 
 	"example.com/go-programming/utils"
+	"github.com/gin-gonic/gin"
 )
 
-func GetImageHandler(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/image/")
+func GetImageHandler(c *gin.Context) {
+	id := c.Param("id")
 	if id == "" {
-		http.Error(w, "Missing image ID", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing image ID"})
 		return
 	}
 
-	// Fetch the image URL from Firestore
-	imageURL, err := utils.GetImagePathByID(id)
+	// Query Params in Postman
+	imageType := c.DefaultQuery("type", "original") // Default to "original"
+	imageSize := c.DefaultQuery("size", "")
+
+	// Retrieve image paths from Firestore
+	paths, err := utils.GetImagePathsByID(id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	// Redirect to the image URL in Firebase Storage
-	http.Redirect(w, r, imageURL, http.StatusFound)
+
+	var imageURL string
+	switch imageType {
+	case "resized":
+		imageURL = paths[imageSize]
+	case "watermarked":
+		imageURL = paths[imageSize+"Watermark"]
+	case "original":
+		imageURL = paths["originalPath"]
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid image type"})
+		return
+	}
+
+	if imageURL == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Image not found"})
+		return
+	}
+
+	c.Redirect(http.StatusFound, imageURL)
 }
